@@ -100,30 +100,13 @@ class PulumiBaseRunner:
         pulumi_dir = Path(self.pulumi_config.working_dir)
         pulumi_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy Pulumi files from root to .matcha directory
-        project_root = Path(os.getcwd())
-        files_to_copy = [
-            "Pulumi.yaml",
-            "pyproject-pulumi.toml",
-            "__main__.py",
-            "Pulumi.dev.yaml"
-        ]
-
-        for file_name in files_to_copy:
-            src = project_root / file_name
-            dst_name = "pyproject.toml" if file_name == "pyproject-pulumi.toml" else file_name
-            dst = pulumi_dir / dst_name
-            if src.exists():
-                dst.write_text(src.read_text())
-
-        # Copy components directory
-        components_src = project_root / "components"
-        components_dst = pulumi_dir / "components"
-
-        if components_src.exists():
-            components_dst.mkdir(exist_ok=True)
-            for py_file in components_src.glob("*.py"):
-                (components_dst / py_file.name).write_text(py_file.read_text())
+        # Since we're using the Python API directly, we don't need to copy files
+        # The Pulumi program is defined inline in the PulumiService
+        # Just ensure the components are importable by adding to Python path
+        import sys
+        project_root = str(Path(os.getcwd()))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
 
     def _initialize_pulumi(self, msg: str = "", destroy: bool = False) -> None:
         """Initialize Pulumi stack and install dependencies.

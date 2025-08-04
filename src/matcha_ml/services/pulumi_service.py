@@ -1,11 +1,17 @@
 """The Pulumi service interface."""
 import dataclasses
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 import json
+
+try:
+    import pulumi
+    from pulumi import automation as auto
+    PULUMI_AVAILABLE = True
+except ImportError:
+    PULUMI_AVAILABLE = False
 
 
 @dataclasses.dataclass
@@ -43,6 +49,7 @@ class PulumiService:
     def __init__(self, pulumi_config: PulumiConfig):
         """Constructor for the PulumiService class."""
         self.config = pulumi_config
+        self._stack = None
 
     def check_poetry_installation(self) -> bool:
         """Checks if Poetry is installed on the host system.
@@ -50,6 +57,7 @@ class PulumiService:
         Returns:
             bool: True if Poetry is installed, False otherwise.
         """
+        import subprocess
         try:
             result = subprocess.run(
                 ["poetry", "--version"],
@@ -61,20 +69,12 @@ class PulumiService:
             return False
 
     def check_installation(self) -> bool:
-        """Checks if Pulumi is installed on the host system.
+        """Checks if Pulumi Python SDK is available.
 
         Returns:
-            bool: True if Pulumi is installed, False otherwise.
+            bool: True if Pulumi Python SDK is installed, False otherwise.
         """
-        try:
-            result = subprocess.run(
-                ["pulumi", "version"],
-                capture_output=True,
-                text=True
-            )
-            return result.returncode == 0
-        except FileNotFoundError:
-            return False
+        return PULUMI_AVAILABLE
 
     def verify_kubectl_config_file(self, config_path: str = ".kube/config") -> None:
         """Checks if kubeconfig is present at location ~/.kube/config.
@@ -130,73 +130,90 @@ class PulumiService:
         """
         return Path(os.path.join(self.config.working_dir, ".pulumi"))
 
-    def _run_pulumi_command(self, command: list, env_vars: Optional[Dict[str, str]] = None) -> PulumiResult:
-        """Run a Pulumi command with proper environment setup.
-
-        Args:
-            command: List of command arguments
-            env_vars: Additional environment variables
-
+    def _get_or_create_stack(self) -> "auto.Stack":
+        """Get or create a Pulumi stack using the Automation API.
+        
         Returns:
-            PulumiResult: Result of the command execution
+            auto.Stack: The Pulumi stack instance
         """
-        # Set up environment
-        env = os.environ.copy()
-        env["MATCHA_COMPONENT"] = self.config.component
+        if not PULUMI_AVAILABLE:
+            raise ImportError("Pulumi Python SDK is not installed. Install with: pip install pulumi")
+        
+        if self._stack is not None:
+            return self._stack
+            
+        # Define the Pulumi program inline
+        def pulumi_program():
+            import os
+            component = os.environ.get("MATCHA_COMPONENT", self.config.component)
+            
+            if component == "remote_state_storage":
+                from components.remote_state_storage import create_remote_state_storage
+                result = create_remote_state_storage(
+                    prefix=pulumi.Config().get("prefix") or "matcha",
+                    location=pulumi.Config().get("location") or "East US"
+                )
+                pulumi.export("storage_account_name", result.storage_account.name)
+                pulumi.export("storage_container_name", result.container.name)
+                pulumi.export("resource_group_name", result.resource_group.name)
+                
+            elif component == "default":
+                from components.default_stack import create_default_stack
+                config = pulumi.Config()
+                result = create_default_stack(
+                    prefix=config.get("prefix") or "matcha",
+                    location=config.get("location") or "East US",
+                    config=config
+                )
+                pulumi.export("resource_group_name", result.resource_group.name)
+                pulumi.export("aks_cluster_name", result.aks_cluster.name)
+                pulumi.export("storage_account_name", result.storage.storage_account.name)
+                pulumi.export("container_registry_name", result.acr.name)
+                
+            elif component == "llm":
+                from components.llm_stack import create_llm_stack
+                config = pulumi.Config()
+                result = create_llm_stack(
+                    prefix=config.get("prefix") or "matcha",
+                    location=config.get("location") or "East US",
+                    config=config
+                )
+                pulumi.export("resource_group_name", result.resource_group.name)
+                pulumi.export("aks_cluster_name", result.aks_cluster.name)
+                pulumi.export("storage_account_name", result.storage.storage_account.name)
+                pulumi.export("container_registry_name", result.acr.name)
+                pulumi.export("chroma_service_name", result.chroma.service_name)
+            else:
+                raise ValueError(f"Unknown component: {component}")
 
-        if env_vars:
-            env.update(env_vars)
-
+        # Create stack using Automation API
         try:
-            result = subprocess.run(
-                command,
-                cwd=self.config.working_dir,
-                capture_output=self.config.capture_output,
-                text=True,
-                env=env
+            self._stack = auto.create_or_select_stack(
+                stack_name=self.config.stack_name,
+                project_name="matcha-ml",
+                program=pulumi_program,
+                work_dir=self.config.working_dir
             )
+        except Exception as e:
+            # Try to select existing stack
+            try:
+                self._stack = auto.select_stack(
+                    stack_name=self.config.stack_name,
+                    project_name="matcha-ml", 
+                    program=pulumi_program,
+                    work_dir=self.config.working_dir
+                )
+            except Exception:
+                raise Exception(f"Failed to create or select stack: {e}")
+        
+        return self._stack
 
-            return PulumiResult(
-                return_code=result.returncode,
-                std_out=result.stdout or "",
-                std_err=result.stderr or ""
-            )
-        except FileNotFoundError as e:
-            return PulumiResult(
-                return_code=1,
-                std_out="",
-                std_err=f"Pulumi command not found: {e}"
-            )
 
-    def stack_init(self) -> PulumiResult:
-        """Initialize a new Pulumi stack.
 
-        Returns:
-            PulumiResult: Result of stack initialization
-        """
-        command = ["pulumi", "stack", "init", self.config.stack_name]
-        return self._run_pulumi_command(command)
 
-    def stack_select(self) -> PulumiResult:
-        """Select an existing Pulumi stack.
-
-        Returns:
-            PulumiResult: Result of stack selection
-        """
-        command = ["pulumi", "stack", "select", self.config.stack_name]
-        return self._run_pulumi_command(command)
-
-    def install_dependencies(self) -> PulumiResult:
-        """Install Python dependencies for the Pulumi project using Poetry.
-
-        Returns:
-            PulumiResult: Result of dependency installation
-        """
-        command = ["poetry", "install"]
-        return self._run_pulumi_command(command)
 
     def config_set(self, key: str, value: str, secret: bool = False) -> PulumiResult:
-        """Set a configuration value.
+        """Set a configuration value using Pulumi Automation API.
 
         Args:
             key: Configuration key
@@ -206,23 +223,54 @@ class PulumiService:
         Returns:
             PulumiResult: Result of configuration setting
         """
-        command = ["pulumi", "config", "set", key, value]
-        if secret:
-            command.append("--secret")
-
-        return self._run_pulumi_command(command)
+        try:
+            stack = self._get_or_create_stack()
+            
+            if secret:
+                stack.set_config(key, auto.ConfigValue(value=value, secret=True))
+            else:
+                stack.set_config(key, auto.ConfigValue(value=value))
+            
+            return PulumiResult(
+                return_code=0,
+                std_out=f"Configuration '{key}' set successfully.",
+                std_err=""
+            )
+            
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def preview(self) -> PulumiResult:
-        """Run `pulumi preview` to show changes that would be made.
+        """Show changes that would be made using Automation API.
 
         Returns:
             PulumiResult: Result of preview command
         """
-        command = ["pulumi", "preview", "--diff"]
-        return self._run_pulumi_command(command)
+        try:
+            stack = self._get_or_create_stack()
+            
+            # Run preview
+            result = stack.preview()
+            
+            return PulumiResult(
+                return_code=0,
+                std_out=f"Preview completed. {len(result.change_summary)} changes planned.",
+                std_err=""
+            )
+            
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def up(self, auto_approve: bool = True) -> PulumiResult:
-        """Run `pulumi up` to deploy the infrastructure.
+        """Deploy the infrastructure using Pulumi Automation API.
 
         Args:
             auto_approve: Whether to automatically approve the deployment
@@ -230,14 +278,35 @@ class PulumiService:
         Returns:
             PulumiResult: Result of deployment
         """
-        command = ["pulumi", "up", "--diff"]
-        if auto_approve:
-            command.append("--yes")
-
-        return self._run_pulumi_command(command)
+        try:
+            stack = self._get_or_create_stack()
+            
+            # Install plugins if needed
+            stack.workspace.install_plugin("azure-native", "v2.0.0")
+            stack.workspace.install_plugin("kubernetes", "v4.0.0") 
+            stack.workspace.install_plugin("helm", "v3.0.0")
+            
+            # Refresh the stack
+            stack.refresh()
+            
+            # Run the update
+            result = stack.up()
+            
+            return PulumiResult(
+                return_code=0 if result.summary.result == "succeeded" else 1,
+                std_out=f"Update succeeded. Resources: {len(result.summary.resource_changes or [])} changed.",
+                std_err=""
+            )
+            
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def destroy(self, auto_approve: bool = True) -> PulumiResult:
-        """Run `pulumi destroy` to destroy the infrastructure.
+        """Destroy the infrastructure using Pulumi Automation API.
 
         Args:
             auto_approve: Whether to automatically approve the destruction
@@ -245,14 +314,27 @@ class PulumiService:
         Returns:
             PulumiResult: Result of destruction
         """
-        command = ["pulumi", "destroy"]
-        if auto_approve:
-            command.append("--yes")
-
-        return self._run_pulumi_command(command)
+        try:
+            stack = self._get_or_create_stack()
+            
+            # Run destroy
+            result = stack.destroy()
+            
+            return PulumiResult(
+                return_code=0 if result.summary.result == "succeeded" else 1,
+                std_out=f"Destroy succeeded. Resources: {len(result.summary.resource_changes or [])} destroyed.",
+                std_err=""
+            )
+            
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def stack_output(self, output_name: Optional[str] = None) -> PulumiResult:
-        """Get stack outputs.
+        """Get stack outputs using Automation API.
 
         Args:
             output_name: Specific output to retrieve (optional)
@@ -260,44 +342,83 @@ class PulumiService:
         Returns:
             PulumiResult: Result containing the outputs
         """
-        command = ["pulumi", "stack", "output"]
-        if output_name:
-            command.append(output_name)
-        else:
-            command.append("--json")
-
-        return self._run_pulumi_command(command)
+        try:
+            stack = self._get_or_create_stack()
+            outputs = stack.outputs()
+            
+            if output_name:
+                if output_name in outputs:
+                    value = outputs[output_name].value
+                    return PulumiResult(
+                        return_code=0,
+                        std_out=str(value),
+                        std_err=""
+                    )
+                else:
+                    return PulumiResult(
+                        return_code=1,
+                        std_out="",
+                        std_err=f"Output '{output_name}' not found"
+                    )
+            else:
+                # Return all outputs as JSON
+                result = {k: v.value for k, v in outputs.items()}
+                return PulumiResult(
+                    return_code=0,
+                    std_out=json.dumps(result),
+                    std_err=""
+                )
+                
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def get_stack_outputs(self) -> Dict[str, Any]:
-        """Get all stack outputs as a dictionary.
+        """Get all stack outputs as a dictionary using Automation API.
 
         Returns:
             Dict[str, Any]: Dictionary of output key-value pairs
         """
-        result = self.stack_output()
-        if result.return_code == 0 and result.std_out:
-            try:
-                return json.loads(result.std_out)
-            except json.JSONDecodeError:
-                return {}
-        return {}
+        try:
+            stack = self._get_or_create_stack()
+            outputs = stack.outputs()
+            
+            # Convert OutputValue objects to regular values
+            result = {}
+            for key, output_value in outputs.items():
+                result[key] = output_value.value
+            
+            return result
+            
+        except Exception:
+            return {}
 
     # Compatibility methods to match TerraformService interface
     def init(self) -> PulumiResult:
-        """Initialize the Pulumi project (compatibility method).
+        """Initialize the Pulumi project using Automation API.
 
         Returns:
             PulumiResult: Result of initialization
         """
-        # Try to select existing stack first, if that fails, create new one
-        select_result = self.stack_select()
-        if select_result.return_code != 0:
-            init_result = self.stack_init()
-            if init_result.return_code != 0:
-                return init_result
-
-        # Install dependencies
-        return self.install_dependencies()
+        try:
+            # Initialize the stack (creates workspace if needed)
+            stack = self._get_or_create_stack()
+            
+            return PulumiResult(
+                return_code=0,
+                std_out="Pulumi stack initialized successfully.",
+                std_err=""
+            )
+            
+        except Exception as e:
+            return PulumiResult(
+                return_code=1,
+                std_out="",
+                std_err=str(e)
+            )
 
     def apply(self) -> PulumiResult:
         """Deploy the infrastructure (compatibility method).
