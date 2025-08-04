@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "matcha-ml-infrastructure"
+version = "0.1.0"
+description = "Pulumi infrastructure for Matcha ML"
+authors = ["FuzzyLabs <info@fuzzylabs.ai>"]
+readme = "README.md"
+packages = [{include = "components"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pulumi = "^3.0.0"
+pulumi-azure-native = "^2.0.0"
+pulumi-kubernetes = "^4.0.0"
+pulumi-helm = "^3.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -44,6 +44,22 @@ class PulumiService:
         """Constructor for the PulumiService class."""
         self.config = pulumi_config
 
+    def check_poetry_installation(self) -> bool:
+        """Checks if Poetry is installed on the host system.
+
+        Returns:
+            bool: True if Poetry is installed, False otherwise.
+        """
+        try:
+            result = subprocess.run(
+                ["poetry", "--version"],
+                capture_output=True,
+                text=True
+            )
+            return result.returncode == 0
+        except FileNotFoundError:
+            return False
+
     def check_installation(self) -> bool:
         """Checks if Pulumi is installed on the host system.
 
@@ -171,12 +187,12 @@ class PulumiService:
         return self._run_pulumi_command(command)
 
     def install_dependencies(self) -> PulumiResult:
-        """Install Python dependencies for the Pulumi project.
+        """Install Python dependencies for the Pulumi project using Poetry.
 
         Returns:
             PulumiResult: Result of dependency installation
         """
-        command = [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+        command = ["poetry", "install"]
         return self._run_pulumi_command(command)
 
     def config_set(self, key: str, value: str, secret: bool = False) -> PulumiResult:

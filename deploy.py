@@ -27,14 +27,15 @@ def setup_pulumi_project():
     # Copy Pulumi files
     files_to_copy = [
         "Pulumi.yaml",
-        "requirements.txt", 
+        "pyproject-pulumi.toml", 
         "__main__.py",
         "Pulumi.dev.yaml"
     ]
     
     for file_name in files_to_copy:
         src = Path(file_name)
-        dst = pulumi_dir / file_name
+        dst_name = "pyproject.toml" if file_name == "pyproject-pulumi.toml" else file_name
+        dst = pulumi_dir / dst_name
         if src.exists():
             dst.write_text(src.read_text())
     
@@ -71,6 +72,12 @@ def deploy_component(component: str, stack: str = "dev", auto_approve: bool = Fa
     if not service.check_installation():
         print("❌ Pulumi is not installed. Please install Pulumi first.")
         print("   Visit: https://www.pulumi.com/docs/get-started/install/")
+        return False
+    
+    # Check Poetry installation
+    if not service.check_poetry_installation():
+        print("❌ Poetry is not installed. Please install Poetry first.")
+        print("   Visit: https://python-poetry.org/docs/#installation")
         return False
     
     print(f"🚀 Deploying {component} component to {stack} stack...")
