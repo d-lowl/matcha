@@ -312,15 +312,15 @@ def provision(
         # Set up Pulumi configuration instead of Terraform templates
         stack = MatchaConfigService.get_stack()
         stack_name = "default" if stack is None else stack.value
-        
+
         # Set configuration for Pulumi deployment
         template_runner.pfs.config_set("prefix", prefix)
         template_runner.pfs.config_set("location", location)
         template_runner.pfs.config_set("password", password, secret=True)
-        
+
         zenml_version = infer_zenml_version()
         template_runner.pfs.config_set("zenmlserver_version", zenml_version)
-        
+
         # Set component type for deployment
         template_runner.pfs.config_set("component", stack_name.lower())
 

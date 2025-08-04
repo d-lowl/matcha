@@ -37,7 +37,7 @@ class PulumiBaseRunner:
             working_dir = working_dir
         else:
             working_dir = PulumiConfig().working_dir
-        
+
         self.pulumi_config = PulumiConfig(working_dir=working_dir, component=component)
         self.pfs = PulumiService(self.pulumi_config)
         self.pulumi_state_dir = self.pfs.get_pulumi_state_dir()
@@ -95,31 +95,31 @@ class PulumiBaseRunner:
     def _setup_pulumi_project(self) -> None:
         """Set up the Pulumi project in the .matcha directory."""
         from pathlib import Path
-        
+
         # Create the .matcha/infrastructure/pulumi directory
         pulumi_dir = Path(self.pulumi_config.working_dir)
         pulumi_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Copy Pulumi files from root to .matcha directory
         project_root = Path(os.getcwd())
         files_to_copy = [
             "Pulumi.yaml",
-            "pyproject-pulumi.toml", 
+            "pyproject-pulumi.toml",
             "__main__.py",
             "Pulumi.dev.yaml"
         ]
-        
+
         for file_name in files_to_copy:
             src = project_root / file_name
             dst_name = "pyproject.toml" if file_name == "pyproject-pulumi.toml" else file_name
             dst = pulumi_dir / dst_name
             if src.exists():
                 dst.write_text(src.read_text())
-        
+
         # Copy components directory
         components_src = project_root / "components"
         components_dst = pulumi_dir / "components"
-        
+
         if components_src.exists():
             components_dst.mkdir(exist_ok=True)
             for py_file in components_src.glob("*.py"):
@@ -131,7 +131,7 @@ class PulumiBaseRunner:
         Args:
             msg (str): Message to display. Default is empty string.
             destroy (bool): whether this function is being called in a destructive context
-            
+
         Raises:
             MatchaError: if Pulumi initialization failed.
         """
@@ -151,7 +151,7 @@ class PulumiBaseRunner:
             with Spinner("Initializing"):
                 # Set up Pulumi project files
                 self._setup_pulumi_project()
-                
+
                 # Initialize Pulumi (this will select or create stack and install dependencies)
                 pulumi_result = self.pfs.init()
 
@@ -222,7 +222,7 @@ class PulumiBaseRunner:
 
         Args:
             msg (str): Message to display. Default is empty string.
-            
+
         Raises:
             MatchaError: if 'pulumi destroy' failed.
         """

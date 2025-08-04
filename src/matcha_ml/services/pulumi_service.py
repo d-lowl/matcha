@@ -98,10 +98,10 @@ class PulumiService:
             bool: False if .matcha directory is empty else True.
         """
         matcha_dir_path = os.path.join(os.getcwd(), ".matcha")
-        
+
         if not os.path.exists(matcha_dir_path):
             return False
-            
+
         return len(os.listdir(matcha_dir_path)) != 0
 
     def check_matcha_directory_exists(self) -> bool:
@@ -132,18 +132,18 @@ class PulumiService:
 
     def _run_pulumi_command(self, command: list, env_vars: Optional[Dict[str, str]] = None) -> PulumiResult:
         """Run a Pulumi command with proper environment setup.
-        
+
         Args:
             command: List of command arguments
             env_vars: Additional environment variables
-            
+
         Returns:
             PulumiResult: Result of the command execution
         """
         # Set up environment
         env = os.environ.copy()
         env["MATCHA_COMPONENT"] = self.config.component
-        
+
         if env_vars:
             env.update(env_vars)
 
@@ -155,7 +155,7 @@ class PulumiService:
                 text=True,
                 env=env
             )
-            
+
             return PulumiResult(
                 return_code=result.returncode,
                 std_out=result.stdout or "",
@@ -209,7 +209,7 @@ class PulumiService:
         command = ["pulumi", "config", "set", key, value]
         if secret:
             command.append("--secret")
-        
+
         return self._run_pulumi_command(command)
 
     def preview(self) -> PulumiResult:
@@ -233,7 +233,7 @@ class PulumiService:
         command = ["pulumi", "up", "--diff"]
         if auto_approve:
             command.append("--yes")
-        
+
         return self._run_pulumi_command(command)
 
     def destroy(self, auto_approve: bool = True) -> PulumiResult:
@@ -248,7 +248,7 @@ class PulumiService:
         command = ["pulumi", "destroy"]
         if auto_approve:
             command.append("--yes")
-        
+
         return self._run_pulumi_command(command)
 
     def stack_output(self, output_name: Optional[str] = None) -> PulumiResult:
@@ -265,7 +265,7 @@ class PulumiService:
             command.append(output_name)
         else:
             command.append("--json")
-        
+
         return self._run_pulumi_command(command)
 
     def get_stack_outputs(self) -> Dict[str, Any]:
@@ -295,7 +295,7 @@ class PulumiService:
             init_result = self.stack_init()
             if init_result.return_code != 0:
                 return init_result
-        
+
         # Install dependencies
         return self.install_dependencies()
 

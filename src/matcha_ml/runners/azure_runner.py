@@ -35,7 +35,7 @@ class AzureRunner(PulumiBaseRunner):
         self._validate_kubeconfig(base_path=".kube/config")
         self._initialize_pulumi(msg="Matcha")
         self._apply_pulumi(msg="Matcha")
-        
+
         # Get Pulumi outputs and convert to format expected by MatchaStateService
         pulumi_outputs = self.pfs.get_stack_outputs()
         return MatchaStateService(pulumi_output=pulumi_outputs)

@@ -301,13 +301,13 @@ class MatchaStateService:
             "aks_cluster_name": ("orchestrator", "kubernetes", "cluster-name"),
             "storage_account_name": ("experiment_tracker", "mlflow", "storage-account-name"),
             "container_registry_name": ("container_registry", "azure", "registry-name"),
-            
+
             # Model deployer (Seldon)
             "seldon_service_name": ("model_deployer", "seldon", "service-name"),
-            
+
             # Data version control
             "dvc_storage_account_name": ("data_version_control", "azure", "storage-account-name"),
-            
+
             # Pipeline (ZenML)
             "zenml_storage_account_name": ("pipeline", "zenml", "storage-account-name"),
         }
@@ -319,9 +319,9 @@ class MatchaStateService:
             if output_name in output_mapping:
                 resource_name, flavor, property_name = output_mapping[output_name]
                 resource_type = MatchaResource(resource_name)
-                
+
                 component = matcha_state.get_component(resource_name)
-                
+
                 if component is not None:
                     # Add just the properties
                     component.properties.append(
