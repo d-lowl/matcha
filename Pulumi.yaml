@@ -1,0 +1,8 @@
+name: matcha-ml
+runtime: python
+description: Matcha ML infrastructure provisioning using Pulumi
+template:
+  config:
+    azure-native:location:
+      description: The Azure region for all resources
+      default: "East US"

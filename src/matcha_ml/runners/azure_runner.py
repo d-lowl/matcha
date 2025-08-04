@@ -1,17 +1,21 @@
-"""Run terraform templates to provision and deprovision resources."""
+"""Run Pulumi programs to provision and deprovision resources."""
 import os
 import shutil
 
-from matcha_ml.runners.base_runner import BaseRunner
+from matcha_ml.runners.pulumi_base_runner import PulumiBaseRunner
 from matcha_ml.state.matcha_state import MatchaStateService
+from matcha_ml.config import MatchaConfigService
 
 
-class AzureRunner(BaseRunner):
-    """A Runner class provides methods that interface with the Terraform service to facilitate the provisioning and deprovisioning of resources."""
+class AzureRunner(PulumiBaseRunner):
+    """A Runner class provides methods that interface with the Pulumi service to facilitate the provisioning and deprovisioning of resources."""
 
     def __init__(self) -> None:
         """Initialize AzureRunner class."""
-        super().__init__()
+        # Get the stack type to determine which component to deploy
+        stack = MatchaConfigService.get_stack()
+        component = "default" if stack is None else stack.value.lower()
+        super().__init__(component=component)
 
     def remove_matcha_dir(self) -> None:
         """Removes the project's .matcha directory"."""
@@ -24,19 +28,22 @@ class AzureRunner(BaseRunner):
         """Provision resources required for the deployment.
 
         Returns:
-            (MatchaStateService): a MatchaStateService instance initialized with Terraform output
+            (MatchaStateService): a MatchaStateService instance initialized with Pulumi output
         """
-        self._check_terraform_installation()
-        self._validate_terraform_config()
+        self._check_pulumi_installation()
+        self._check_poetry_installation()
         self._validate_kubeconfig(base_path=".kube/config")
-        self._initialize_terraform(msg="Matcha")
-        self._apply_terraform(msg="Matcha")
-        tf_output = self.tfs.terraform_client.output()
-        return MatchaStateService(terraform_output=tf_output)
+        self._initialize_pulumi(msg="Matcha")
+        self._apply_pulumi(msg="Matcha")
+
+        # Get Pulumi outputs and convert to format expected by MatchaStateService
+        pulumi_outputs = self.pfs.get_stack_outputs()
+        return MatchaStateService(pulumi_output=pulumi_outputs)
 
     def deprovision(self) -> None:
         """Destroy the provisioned resources."""
         self._check_matcha_directory_exists()
-        self._check_terraform_installation()
-        self._initialize_terraform(msg="Matcha", destroy=True)
-        self._destroy_terraform(msg="Matcha")
+        self._check_pulumi_installation()
+        self._check_poetry_installation()
+        self._initialize_pulumi(msg="Matcha", destroy=True)
+        self._destroy_pulumi(msg="Matcha")

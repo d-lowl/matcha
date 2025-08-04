@@ -1,0 +1,10 @@
+config:
+  azure-native:location: "East US"
+  matcha-ml:prefix: "matcha"
+  matcha-ml:component: "default"
+  matcha-ml:username: "admin"
+  matcha-ml:password:
+    secure: ""  # Set this with: pulumi config set --secret password <your-password>
+  matcha-ml:zenmlserver_version: "latest"
+  matcha-ml:seldon_name: "seldon"
+  matcha-ml:seldon_namespace: "seldon-system"
