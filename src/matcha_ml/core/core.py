@@ -25,7 +25,7 @@ from matcha_ml.services.analytics_service import AnalyticsEvent, track
 from matcha_ml.services.global_parameters_service import GlobalParameters
 from matcha_ml.state import MatchaStateService, RemoteStateManager
 from matcha_ml.state.matcha_state import MatchaState
-from matcha_ml.templates.azure_template import DEFAULT_STACK, LLM_STACK, AzureTemplate
+# from matcha_ml.templates.azure_template import DEFAULT_STACK, LLM_STACK, AzureTemplate  # No longer needed for Pulumi
 
 
 class StackTypeMeta(
@@ -81,6 +81,18 @@ def _show_terraform_outputs(matcha_state: MatchaState) -> None:
 
     Args:
         matcha_state (MatchaState): Terraform outputs in a MatchaState format.
+    """
+    print_status(build_status("Here are the endpoints for what's been provisioned"))
+    resources_dict = hide_sensitive_in_output(matcha_state.to_dict())
+    resources_json = dict_to_json(resources_dict)
+    print_json(resources_json)
+
+
+def _show_pulumi_outputs(matcha_state: MatchaState) -> None:
+    """Print the formatted Pulumi outputs.
+
+    Args:
+        matcha_state (MatchaState): Pulumi outputs in a MatchaState format.
     """
     print_status(build_status("Here are the endpoints for what's been provisioned"))
     resources_dict = hide_sensitive_in_output(matcha_state.to_dict())
@@ -297,39 +309,25 @@ def provision(
     remote_state_manager.provision_remote_state(location, prefix)
 
     with remote_state_manager.use_lock(), remote_state_manager.use_remote_state():
-        project_directory = os.getcwd()
-        destination = os.path.join(
-            project_directory, ".matcha", "infrastructure", "resources"
-        )
-
+        # Set up Pulumi configuration instead of Terraform templates
         stack = MatchaConfigService.get_stack()
-        if stack is not None:
-            stack_name = stack.value
-
-        template = os.path.join(
-            os.path.dirname(__file__),
-            os.pardir,
-            "infrastructure",
-            stack_name,
-        )
-
-        azure_template = AzureTemplate(
-            LLM_STACK if stack_name == StackType.LLM.value else DEFAULT_STACK
-        )
-
+        stack_name = "default" if stack is None else stack.value
+        
+        # Set configuration for Pulumi deployment
+        template_runner.pfs.config_set("prefix", prefix)
+        template_runner.pfs.config_set("location", location)
+        template_runner.pfs.config_set("password", password, secret=True)
+        
         zenml_version = infer_zenml_version()
-        config = azure_template.build_template_configuration(
-            location=location,
-            prefix=prefix,
-            password=password,
-            zenmlserver_version=zenml_version,
-        )
-        azure_template.build_template(config, template, destination, verbose)
+        template_runner.pfs.config_set("zenmlserver_version", zenml_version)
+        
+        # Set component type for deployment
+        template_runner.pfs.config_set("component", stack_name.lower())
 
         matcha_state_service = template_runner.provision()
 
         if verbose:
-            _show_terraform_outputs(matcha_state_service._state)
+            _show_pulumi_outputs(matcha_state_service._state)
 
         return matcha_state_service.fetch_resources_from_state_file()
 

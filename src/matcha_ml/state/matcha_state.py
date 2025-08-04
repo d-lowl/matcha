@@ -148,22 +148,25 @@ class MatchaStateService:
         self,
         matcha_state: Optional[MatchaState] = None,
         terraform_output: Optional[Dict[str, Dict[str, str]]] = None,
+        pulumi_output: Optional[Dict[str, str]] = None,
     ) -> None:
         """Constructor for the MatchaStateService.
 
-        Note: this object should not be initialized with both 'matcha_state' and 'terraform_output' arguments.
+        Note: this object should not be initialized with more than one output argument.
 
         Args:
             matcha_state (Optional[MatchaState]): MatchaState object to initialize the service with. Defaults to None.
             terraform_output (Optional[dict]): Output from Terraform to be parsed into a MatchaState object on initialization. Defaults to None.
+            pulumi_output (Optional[dict]): Output from Pulumi to be parsed into a MatchaState object on initialization. Defaults to None.
 
         Raises:
             MatchaError: if the state file does not exist.
-            MatchaError: if MatchaStateService is initialized with both 'matcha_state' and 'terraform_output' arguments.
+            MatchaError: if MatchaStateService is initialized with multiple output arguments.
         """
-        if matcha_state is not None and terraform_output is not None:
+        output_args = [arg for arg in [matcha_state, terraform_output, pulumi_output] if arg is not None]
+        if len(output_args) > 1:
             raise MatchaError(
-                "MatchaStateService constructor cannot be called with both 'matcha_state' and 'terraform_output' arguments."
+                "MatchaStateService constructor cannot be called with multiple output arguments."
             )
 
         if matcha_state is not None:
@@ -171,6 +174,9 @@ class MatchaStateService:
             self._write_state(matcha_state=matcha_state)
         elif terraform_output is not None:
             self._state = self.build_state_from_terraform_output(terraform_output)
+            self._write_state(self._state)
+        elif pulumi_output is not None:
+            self._state = self.build_state_from_pulumi_output(pulumi_output)
             self._write_state(self._state)
         elif self.state_exists():
             self._state = self._read_state()
@@ -263,6 +269,83 @@ class MatchaStateService:
                             ),
                         ],
                     )
+                )
+
+        # Create a unique matcha state identifier
+        matcha_uuid_component = MatchaStateComponent(
+            resource=MatchaResource(name="id"),
+            properties=[
+                MatchaResourceProperty(name="matcha_uuid", value=str(uuid.uuid4()))
+            ],
+        )
+        matcha_state.components.append(matcha_uuid_component)
+
+        return matcha_state
+
+    def build_state_from_pulumi_output(
+        self, pulumi_output: Dict[str, str]
+    ) -> MatchaState:
+        """Builds a MatchaState class from a Pulumi output dictionary.
+
+        Args:
+            pulumi_output (Dict[str, str]): Pulumi output variables as a dictionary
+
+        Returns:
+            MatchaState: Pulumi output variables in a MatchaState dataclass format.
+        """
+        # Map Pulumi outputs to Matcha state format
+        # This mapping converts Pulumi output names to the expected Matcha state structure
+        output_mapping = {
+            # Cloud resource information
+            "resource_group_name": ("cloud", "azure", "resource-group-name"),
+            "aks_cluster_name": ("orchestrator", "kubernetes", "cluster-name"),
+            "storage_account_name": ("experiment_tracker", "mlflow", "storage-account-name"),
+            "container_registry_name": ("container_registry", "azure", "registry-name"),
+            
+            # Model deployer (Seldon)
+            "seldon_service_name": ("model_deployer", "seldon", "service-name"),
+            
+            # Data version control
+            "dvc_storage_account_name": ("data_version_control", "azure", "storage-account-name"),
+            
+            # Pipeline (ZenML)
+            "zenml_storage_account_name": ("pipeline", "zenml", "storage-account-name"),
+        }
+
+        matcha_state = MatchaState(components=[])
+
+        # Process known outputs
+        for output_name, output_value in pulumi_output.items():
+            if output_name in output_mapping:
+                resource_name, flavor, property_name = output_mapping[output_name]
+                resource_type = MatchaResource(resource_name)
+                
+                component = matcha_state.get_component(resource_name)
+                
+                if component is not None:
+                    # Add just the properties
+                    component.properties.append(
+                        MatchaResourceProperty(name=property_name, value=str(output_value))
+                    )
+                else:
+                    # Add the component
+                    matcha_state.components.append(
+                        MatchaStateComponent(
+                            resource=resource_type,
+                            properties=[
+                                MatchaResourceProperty(name="flavor", value=flavor),
+                                MatchaResourceProperty(name=property_name, value=str(output_value)),
+                            ],
+                        )
+                    )
+
+        # Add location information from Pulumi config if available
+        # This would typically come from azure-native:location config
+        if "location" in pulumi_output:
+            cloud_component = matcha_state.get_component("cloud")
+            if cloud_component is not None:
+                cloud_component.properties.append(
+                    MatchaResourceProperty(name="location", value=str(pulumi_output["location"]))
                 )
 
         # Create a unique matcha state identifier
